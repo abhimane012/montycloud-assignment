@@ -82,7 +82,7 @@ def test_view_image():
     event_upload = {
         "body": json.dumps({
             "image_data": image_data,
-            "metadata": metadata
+            **metadata
         })
     }
 
@@ -114,7 +114,7 @@ def test_delete_image():
     event_upload = {
         "body": json.dumps({
             "image_data": image_data,
-            "metadata": metadata
+            **metadata
         })
     }
 
