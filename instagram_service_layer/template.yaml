@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM Template for Instagram-like image upload and retrieval service
+
+Globals:
+  Function:
+    Timeout: 10
+    Runtime: python3.9
+    MemorySize: 128
+
+Resources:
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: InstagramImageAPI
+      StageName: Prod
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+        AllowOrigin: "'*'"
+
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: instagram-image-storage
+
+  ImageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: InstagramImageMetadata
+      AttributeDefinitions:
+        - AttributeName: image_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: image_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  UploadImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.upload_image
+      CodeUri: ./src
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ImageBucket
+          TABLE_NAME: !Ref ImageTable
+      Events:
+        UploadAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /upload
+            Method: post
+      Policies:
+        - PolicyName: UploadImagePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "${ImageBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt ImageTable.Arn
+
+  ListImagesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.list_images
+      CodeUri: ./src
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ImageTable
+      Events:
+        ListAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /images
+            Method: get
+      Policies:
+        - PolicyName: ListImagesPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                Resource: !GetAtt ImageTable.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource: !Sub "${ImageTable.Arn}/index/UserIndex"
+
+  ViewImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.view_image
+      CodeUri: ./src
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ImageBucket
+      Events:
+        ViewAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /images/{image_id}
+            Method: get
+      Policies:
+        - PolicyName: ViewImagePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "${ImageBucket.Arn}/*"
+
+  DeleteImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.delete_image
+      CodeUri: ./src
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ImageBucket
+          TABLE_NAME: !Ref ImageTable
+      Events:
+        DeleteAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /images/{image_id}
+            Method: delete
+      Policies:
+        - PolicyName: DeleteImagePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource: !Sub "${ImageBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt ImageTable.Arn
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
